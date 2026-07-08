@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="部旅行の部屋割り・バス座席予約管理サイト"
+    />
+    <title>部旅行</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="header-inner">
+        <div class="brand-mark" aria-hidden="true">旅</div>
+        <div class="header-title-group">
+          <p class="eyebrow">ROOM &amp; BUS RESERVATION</p>
+          <h1>部旅行</h1>
+          <p class="header-copy">みんなの部屋とバス座席を、ひとつの場所で。</p>
+        </div>
+        <div id="header-menu" class="header-menu">
+          <button
+            id="header-menu-toggle"
+            class="header-menu-toggle"
+            type="button"
+            aria-label="メニューを開く"
+            aria-expanded="false"
+            aria-controls="header-menu-panel"
+          >
+            <span class="header-menu-icon" aria-hidden="true">
+              <i></i>
+              <i></i>
+              <i></i>
+            </span>
+            <span class="header-menu-label" aria-hidden="true">MENU</span>
+          </button>
+          <nav
+            id="header-menu-panel"
+            class="header-menu-panel"
+            aria-label="サイトメニュー"
+            hidden
+          >
+            <div class="header-menu-heading">
+              <span>NAVIGATION</span>
+              <strong>メニュー</strong>
+            </div>
+            <button
+              id="menu-participant-login"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="participant-login"
+            >
+              参加者ログイン
+            </button>
+            <button
+              id="menu-booking"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="booking"
+            >
+              部屋予約
+            </button>
+            <button
+              id="menu-status"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="status"
+            >
+              予約状況
+            </button>
+            <button
+              id="menu-itinerary"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="itinerary"
+            >
+              しおり
+            </button>
+            <button
+              id="menu-admin"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="admin"
+            >
+              管理者ログイン
+            </button>
+            <button
+              id="menu-logout"
+              class="header-menu-item is-logout"
+              type="button"
+              data-menu-action="logout"
+              hidden
+            >
+              ログアウト
+            </button>
+          </nav>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="participant-access card" aria-labelledby="participant-login-title">
+        <div class="access-copy">
+          <p class="section-kicker">PARTICIPANT</p>
+          <h2 id="participant-login-title">参加者アカウント</h2>
+          <p>
+            登録済みの方はログイン、初めての方は新規登録へお進みください。
+          </p>
+        </div>
+        <div id="participant-auth" class="participant-auth">
+          <div class="auth-mode-nav" role="tablist" aria-label="参加者アカウント">
+            <button
+              id="participant-login-tab"
+              class="auth-mode-button is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="participant-login-panel"
+              data-participant-auth="login"
+            >
+              ログイン
+            </button>
+            <button
+              id="participant-register-tab"
+              class="auth-mode-button"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="participant-register-panel"
+              data-participant-auth="register"
+            >
+              新規登録
+            </button>
+          </div>
+
+          <div
+            id="participant-login-panel"
+            role="tabpanel"
+            aria-labelledby="participant-login-tab"
+          >
+            <form id="participant-login-form" class="participant-form" novalidate>
+              <div class="participant-fields">
+                <div class="participant-field">
+                  <label for="participant-login-name">お名前</label>
+                  <input
+                    id="participant-login-name"
+                    name="participant-login-name"
+                    type="text"
+                    autocomplete="name"
+                    maxlength="40"
+                    placeholder="例：山田 太郎"
+                    required
+                  />
+                </div>
+                <div class="participant-field">
+                  <label for="participant-login-password">4桁パスワード</label>
+                  <input
+                    id="participant-login-password"
+                    name="participant-login-password"
+                    type="password"
+                    inputmode="numeric"
+                    autocomplete="current-password"
+                    minlength="4"
+                    maxlength="4"
+                    pattern="[0-9]{4}"
+                    placeholder="数字4桁"
+                    aria-describedby="participant-login-note"
+                    required
+                  />
+                </div>
+                <button class="button button-primary" type="submit">ログイン</button>
+              </div>
+              <p id="participant-login-note" class="form-note">
+                登録時のお名前と数字4桁のパスワードを入力してください。
+              </p>
+            </form>
+            <p class="participant-mode-switch">
+              初めてご利用ですか？
+              <button class="text-button" type="button" data-participant-auth="register">
+                新規登録へ
+              </button>
+            </p>
+          </div>
+
+          <div
+            id="participant-register-panel"
+            role="tabpanel"
+            aria-labelledby="participant-register-tab"
+            hidden
+          >
+            <form id="participant-register-form" class="participant-form" novalidate>
+              <div class="participant-fields">
+                <div class="participant-field">
+                  <label for="participant-register-name">お名前</label>
+                  <input
+                    id="participant-register-name"
+                    name="participant-register-name"
+                    type="text"
+                    autocomplete="name"
+                    maxlength="40"
+                    placeholder="例：山田 太郎"
+                    required
+                  />
+                </div>
+                <div class="participant-field">
+                  <label for="participant-register-password">4桁パスワード</label>
+                  <input
+                    id="participant-register-password"
+                    name="participant-register-password"
+                    type="password"
+                    inputmode="numeric"
+                    autocomplete="new-password"
+                    minlength="4"
+                    maxlength="4"
+                    pattern="[0-9]{4}"
+                    placeholder="数字4桁"
+                    aria-describedby="participant-register-note"
+                    required
+                  />
+                </div>
+                <button class="button button-primary" type="submit">新規登録</button>
+              </div>
+              <p id="participant-register-note" class="form-note">
+                メールアドレスは不要です。ログインに使う数字4桁を設定してください。
+              </p>
+            </form>
+            <p class="participant-mode-switch">
+              すでに登録済みですか？
+              <button class="text-button" type="button" data-participant-auth="login">
+                ログインへ
+              </button>
+            </p>
+          </div>
+        </div>
+        <div id="participant-session" class="session-panel" hidden>
+          <div>
+            <span class="session-label">ログイン中</span>
+            <strong id="session-name"></strong>
+            <span id="session-booking" class="session-booking"></span>
+          </div>
+          <button id="participant-logout" class="text-button" type="button">
+            ログアウト
+          </button>
+        </div>
+      </section>
+
+      <nav class="tab-nav" aria-label="メインナビゲーション">
+        <button class="tab-button" type="button" data-view="itinerary">
+          しおり
+        </button>
+        <button class="tab-button is-active" type="button" data-view="booking">
+          部屋
+        </button>
+        <button class="tab-button" type="button" data-view="bus">
+          バス
+        </button>
+        <button class="tab-button" type="button" data-view="status">
+          予約確認
+        </button>
+        <button class="tab-button" type="button" data-view="admin">
+          管理者
+        </button>
+      </nav>
+
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+
+      <section id="view-booking" class="view is-active" aria-labelledby="booking-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">ROOM SELECTION</p>
+            <h2 id="booking-title">部屋を選ぶ</h2>
+          </div>
+          <p id="booking-guidance" class="section-description">
+            ログイン後、ご希望の部屋を1つお選びいただけます。
+          </p>
+        </div>
+        <div id="booking-summary" class="booking-summary" hidden></div>
+        <div id="room-grid" class="room-grid"></div>
+      </section>
+
+      <section id="view-status" class="view" aria-labelledby="status-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">RESERVATION STATUS</p>
+            <h2 id="status-title">予約状況</h2>
+          </div>
+          <p class="section-description">各部屋の予約済みメンバーを確認できます。</p>
+        </div>
+        <div id="status-overview" class="status-overview"></div>
+        <div id="status-list" class="status-list"></div>
+      </section>
+
+      <section
+        id="view-itinerary"
+        class="view"
+        aria-labelledby="itinerary-title"
+        hidden
+      >
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">JOURNEY GUIDE</p>
+            <h2 id="itinerary-title">しおり</h2>
+          </div>
+          <p class="section-description">
+            旅行当日の集合時間や移動予定を確認できます。
+          </p>
+        </div>
+        <div id="itinerary-list" class="itinerary-list"></div>
+      </section>
+
+      <section id="view-bus" class="view" aria-labelledby="bus-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">BUS SEAT RESERVATION</p>
+            <h2 id="bus-title">バス座席予約</h2>
+          </div>
+          <p id="bus-description" class="section-description">
+            行き・帰り、それぞれの座席表からご希望の席をお選びください。
+          </p>
+        </div>
+
+        <section id="bus-login-required" class="bus-login-required card" hidden>
+          <div class="bus-login-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="24" height="24">
+              <path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12v10H6z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            </svg>
+          </div>
+          <div>
+            <p class="section-kicker">SEAT AVAILABILITY</p>
+            <h3>ログインなしで予約状況を確認できます</h3>
+            <p>座席を選んで予約する場合は、ページ上部から参加者ログインしてください。</p>
+          </div>
+        </section>
+
+        <div id="bus-booking-content" hidden>
+          <div class="bus-layout">
+            <div id="bus-seat-maps" class="bus-seat-maps">
+              <section class="bus-map-card card" aria-labelledby="outbound-bus-title">
+                <div class="bus-map-heading">
+                  <div>
+                    <p class="section-kicker">OUTBOUND</p>
+                    <h3 id="outbound-bus-title">行きのバス座席予約</h3>
+                  </div>
+                  <span id="outbound-seat-count" class="bus-selected-count">未選択</span>
+                </div>
+                <div class="bus-front" aria-hidden="true">
+                  <span>前方</span>
+                  <div class="windshield"></div>
+                  <div class="driver-seat">運転席</div>
+                </div>
+                <div
+                  id="outbound-seat-map"
+                  class="bus-seat-map"
+                  aria-label="行きのバス座席表"
+                ></div>
+              </section>
+
+              <section class="bus-map-card card" aria-labelledby="return-bus-title">
+                <div class="bus-map-heading">
+                  <div>
+                    <p class="section-kicker">RETURN</p>
+                    <h3 id="return-bus-title">帰りのバス座席予約</h3>
+                  </div>
+                  <span id="return-seat-count" class="bus-selected-count">未選択</span>
+                </div>
+                <div class="bus-front" aria-hidden="true">
+                  <span>前方</span>
+                  <div class="windshield"></div>
+                  <div class="driver-seat">運転席</div>
+                </div>
+                <div
+                  id="return-seat-map"
+                  class="bus-seat-map"
+                  aria-label="帰りのバス座席表"
+                ></div>
+              </section>
+
+              <div class="seat-legend" aria-label="座席の状態">
+                <span><i class="legend-seat is-available"></i>空席</span>
+                <span><i class="legend-seat is-selected"></i>選択中</span>
+                <span><i class="legend-seat is-reserved"></i>予約済み</span>
+                <span><i class="legend-seat is-own"></i>自分の予約</span>
+              </div>
+            </div>
+
+            <section class="bus-form-card card" aria-labelledby="bus-selection-title">
+              <div class="subsection-heading">
+                <div>
+                  <p class="section-kicker">ACCOUNT BOOKING</p>
+                  <h3 id="bus-selection-title">選択内容</h3>
+                </div>
+              </div>
+              <div class="bus-account-panel">
+                <span>予約する参加者</span>
+                <strong id="bus-account-name"></strong>
+              </div>
+              <dl class="bus-selection-summary">
+                <div>
+                  <dt>行きの座席</dt>
+                  <dd id="bus-outbound-summary">未選択</dd>
+                </div>
+                <div>
+                  <dt>帰りの座席</dt>
+                  <dd id="bus-return-summary">未選択</dd>
+                </div>
+              </dl>
+              <div id="bus-form-errors" class="form-errors" role="alert" hidden></div>
+              <button
+                id="confirm-bus-reservation"
+                class="button button-primary button-full"
+                type="button"
+              >
+                この内容で予約する
+              </button>
+              <p class="form-note bus-form-note">
+                予約はログイン中の参加者アカウントに保存されます。
+              </p>
+            </section>
+          </div>
+
+          <section
+            id="bus-confirmation"
+            class="bus-confirmation card"
+            aria-labelledby="bus-confirmation-title"
+            aria-live="polite"
+            hidden
+          >
+            <div class="confirmation-heading">
+              <div>
+                <p class="section-kicker">RESERVATION COMPLETE</p>
+                <h3 id="bus-confirmation-title">バス座席を予約しました</h3>
+              </div>
+              <span class="confirmation-status">アカウントに保存済み</span>
+            </div>
+            <dl id="bus-confirmation-details" class="confirmation-grid"></dl>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-admin" class="view" aria-labelledby="admin-title" hidden>
+        <div id="admin-login-view">
+          <div class="auth-layout">
+            <div class="auth-intro">
+              <p class="section-kicker">ADMINISTRATION</p>
+              <h2 id="admin-title">管理者ログイン</h2>
+              <p>
+                予約状況の詳細と、未予約の参加者一覧を確認できます。
+              </p>
+              <div class="security-note">
+                <span class="security-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path d="M12 3 5 6v5c0 4.6 2.9 8.8 7 10 4.1-1.2 7-5.4 7-10V6l-7-3Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                    <path d="m9.3 12 1.7 1.7 3.8-4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                  </svg>
+                </span>
+                <p>管理者のみメールアドレスとパスワードを使用します。</p>
+              </div>
+            </div>
+            <form id="admin-login-form" class="auth-card card">
+              <div class="field">
+                <label for="admin-email">メールアドレス</label>
+                <input
+                  id="admin-email"
+                  name="admin-email"
+                  type="email"
+                  autocomplete="username"
+                  required
+                />
+              </div>
+              <div class="field">
+                <label for="admin-password">パスワード</label>
+                <input
+                  id="admin-password"
+                  name="admin-password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </div>
+              <button class="button button-primary button-full" type="submit">
+                管理者としてログイン
+              </button>
+              <button id="show-reset" class="text-button auth-link" type="button">
+                パスワードを忘れた場合
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div id="admin-reset-view" hidden>
+          <div class="auth-layout">
+            <div class="auth-intro">
+              <p class="section-kicker">PASSWORD RESET</p>
+              <h2>パスワード再設定</h2>
+              <p>
+                管理者として登録されているメールアドレスを入力してください。
+              </p>
+            </div>
+            <form id="admin-reset-form" class="auth-card card">
+              <div class="field">
+                <label for="reset-email">管理者メールアドレス</label>
+                <input
+                  id="reset-email"
+                  name="reset-email"
+                  type="email"
+                  autocomplete="email"
+                  required
+                />
+              </div>
+              <button class="button button-primary button-full" type="submit">
+                再設定用の案内を送る
+              </button>
+              <button id="back-to-admin-login" class="text-button auth-link" type="button">
+                管理者ログインへ戻る
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div id="admin-reset-complete" class="reset-complete card" hidden>
+          <div class="complete-icon" aria-hidden="true">✓</div>
+          <p class="section-kicker">REQUEST RECEIVED</p>
+          <h2>再設定の申請を受け付けました</h2>
+          <p>
+            入力されたメールアドレスが登録情報と一致する場合、パスワード再設定用の案内を送信します。
+          </p>
+          <p class="implementation-note">
+            現在は画面上の受付のみです。メール送信処理は将来のバックエンド接続時に追加できます。
+          </p>
+          <button id="reset-complete-back" class="button button-secondary" type="button">
+            管理者ログインへ戻る
+          </button>
+        </div>
+
+        <div id="admin-dashboard" hidden>
+          <div class="admin-heading">
+            <div>
+              <p class="section-kicker">ADMINISTRATION</p>
+              <h2>管理者ページ</h2>
+              <p class="section-description">参加者と部屋の予約状況を一覧で確認できます。</p>
+            </div>
+            <button id="admin-logout" class="button button-secondary" type="button">
+              ログアウト
+            </button>
+          </div>
+          <div id="admin-stats" class="stats-grid"></div>
+          <section
+            class="admin-section itinerary-admin-section card"
+            aria-labelledby="admin-itinerary-title"
+          >
+            <div class="subsection-heading">
+              <div>
+                <p class="section-kicker">ITINERARY</p>
+                <h3 id="admin-itinerary-title">工程表管理</h3>
+                <p class="admin-section-description">
+                  しおりに表示する予定を追加・編集・削除できます。
+                </p>
+              </div>
+              <span class="admin-only-badge">管理者のみ</span>
+            </div>
+            <form id="itinerary-form" class="itinerary-form" novalidate>
+              <div class="field">
+                <label for="itinerary-date">日付</label>
+                <input id="itinerary-date" type="date" required />
+              </div>
+              <div class="field">
+                <label for="itinerary-time">時刻</label>
+                <input id="itinerary-time" type="time" required />
+              </div>
+              <div class="field itinerary-title-field">
+                <label for="itinerary-entry-title">予定</label>
+                <input
+                  id="itinerary-entry-title"
+                  type="text"
+                  maxlength="60"
+                  placeholder="例：ホテルロビー集合"
+                  required
+                />
+              </div>
+              <div class="field itinerary-location-field">
+                <label for="itinerary-location">場所</label>
+                <input
+                  id="itinerary-location"
+                  type="text"
+                  maxlength="80"
+                  placeholder="例：1階ロビー"
+                />
+              </div>
+              <div class="field itinerary-note-field">
+                <label for="itinerary-note">メモ</label>
+                <textarea
+                  id="itinerary-note"
+                  rows="3"
+                  maxlength="300"
+                  placeholder="持ち物や注意事項など"
+                ></textarea>
+              </div>
+              <div class="itinerary-form-actions">
+                <button
+                  id="cancel-itinerary-edit"
+                  class="button button-secondary"
+                  type="button"
+                  hidden
+                >
+                  編集を取り消す
+                </button>
+                <button
+                  id="save-itinerary"
+                  class="button button-primary"
+                  type="submit"
+                >
+                  工程を追加
+                </button>
+              </div>
+            </form>
+            <div id="admin-itinerary-list" class="admin-itinerary-list"></div>
+          </section>
+          <div class="admin-content-grid">
+            <section class="admin-section card" aria-labelledby="admin-room-title">
+              <div class="subsection-heading">
+                <div>
+                  <p class="section-kicker">ROOMS</p>
+                  <h3 id="admin-room-title">部屋別予約状況</h3>
+                </div>
+              </div>
+              <div id="admin-room-list" class="admin-room-list"></div>
+            </section>
+            <section class="admin-section card" aria-labelledby="unbooked-title">
+              <div class="subsection-heading">
+                <div>
+                  <p class="section-kicker">UNASSIGNED</p>
+                  <h3 id="unbooked-title">未予約の参加者</h3>
+                </div>
+                <span id="unbooked-count" class="count-badge"></span>
+              </div>
+              <div id="unbooked-list"></div>
+            </section>
+          </div>
+          <section
+            class="admin-section participant-account-section card"
+            aria-labelledby="participant-account-title"
+          >
+            <div class="subsection-heading">
+              <div>
+                <p class="section-kicker">PARTICIPANT ACCOUNTS</p>
+                <h3 id="participant-account-title">参加者アカウント管理</h3>
+                <p class="admin-section-description">
+                  参加者の4桁パスワードを確認・変更できます。
+                </p>
+              </div>
+              <span class="admin-only-badge">管理者のみ</span>
+            </div>
+            <div id="admin-participant-account-list" class="participant-password-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>部旅行 予約管理</p>
+      <p>定員32名 ／ 参加予定33名</p>
+    </footer>
+
+    <dialog id="booking-dialog" class="booking-dialog">
+      <form method="dialog">
+        <button class="dialog-close" value="cancel" aria-label="閉じる" type="submit">×</button>
+        <p class="section-kicker">CONFIRMATION</p>
+        <h2 id="dialog-title">予約を確認</h2>
+        <p id="dialog-message"></p>
+        <div class="dialog-actions">
+          <button class="button button-secondary" value="cancel" type="submit">
+            戻る
+          </button>
+          <button id="confirm-booking" class="button button-primary" value="default" type="button">
+            予約を確定
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
