@@ -10,7 +10,7 @@
     itinerary: "groupTrip.itinerary.v1",
   };
 
-  const SUPABASE_URL = "https://ykvhwhrgahczfmlasalg.supabase.co";
+  const SUPABASE_URL = "https://ykywhwrgahczfmlasalg.supabase.co";
   const SUPABASE_ANON_KEY =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlreXdod3JnYWhjemZtbGFzYWxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0OTY0OTgsImV4cCI6MjA5OTA3MjQ5OH0.rqt74LCMHYrjhiOebEjFd_3ueydT0BKphY7aojD2K3I";
   const SUPABASE_RESERVATIONS_TABLE = "reservations";
@@ -242,13 +242,57 @@
     }
   }
 
+  function getSupabaseProjectRefFromAnonKey() {
+    try {
+      const payload = SUPABASE_ANON_KEY.split(".")[1];
+      if (!payload) return "";
+      const normalizedPayload = payload
+        .replaceAll("-", "+")
+        .replaceAll("_", "/")
+        .padEnd(Math.ceil(payload.length / 4) * 4, "=");
+      return JSON.parse(window.atob(normalizedPayload)).ref || "";
+    } catch (error) {
+      console.error("Supabase anon key の解析に失敗しました:", error);
+      return "";
+    }
+  }
+
+  function getReadableErrorMessage(error) {
+    if (!error) return "不明なエラーです";
+    if (error.message) return error.message;
+    if (error.error_description) return error.error_description;
+    if (error.details) return error.details;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  function logSupabaseError(context, error, meta = {}) {
+    console.error(`[Supabase] ${context}`, {
+      message: getReadableErrorMessage(error),
+      error,
+      meta,
+    });
+  }
+
   function getSupabaseSetupError() {
     if (!SUPABASE_IS_CONFIGURED) {
       return "Supabase接続情報を設定してください。app.js の SUPABASE_URL と SUPABASE_ANON_KEY を実際の値に置き換えると予約機能を使用できます。";
     }
 
+    if (/\/rest\/v1\/?$/i.test(SUPABASE_URL)) {
+      return "SUPABASE_URLには /rest/v1/ を含めず、https://xxxx.supabase.co の形で設定してください。";
+    }
+
     if (!window.supabase || !supabaseClient) {
       return "Supabase JavaScript Clientを読み込めませんでした。index.html のSupabase scriptタグを確認してください。";
+    }
+
+    const projectRef = getSupabaseProjectRefFromAnonKey();
+    if (projectRef && !SUPABASE_URL.includes(`${projectRef}.supabase.co`)) {
+      return `SUPABASE_URLとanon keyのproject refが一致していません。URLは https://${projectRef}.supabase.co の形にしてください。`;
     }
 
     return "";
@@ -662,7 +706,9 @@
       .insert(legacyReservations);
 
     if (error) {
-      console.error("Supabase legacy migration failed:", error);
+      logSupabaseError("既存localStorage予約のSupabase移行に失敗", error, {
+        count: legacyReservations.length,
+      });
       return rows;
     }
 
@@ -672,7 +718,7 @@
       .order("created_at", { ascending: true });
 
     if (reloadError) {
-      console.error("Supabase reload after migration failed:", reloadError);
+      logSupabaseError("既存予約移行後の再取得に失敗", reloadError);
       return rows;
     }
 
@@ -686,6 +732,11 @@
       state.supabaseReservationsLoaded = false;
       resetRoomReservations();
       repairRelationships();
+      console.error("[Supabase] 初期設定エラー", {
+        message: setupError,
+        url: SUPABASE_URL,
+        hasSupabaseGlobal: Boolean(window.supabase),
+      });
       if (showErrors) showNotice(setupError, "error");
       return false;
     }
@@ -700,10 +751,13 @@
       state.supabaseReservationsLoaded = false;
       resetRoomReservations();
       repairRelationships();
-      console.error("Supabase reservation select failed:", error);
+      logSupabaseError("予約データの取得に失敗", error, {
+        url: SUPABASE_URL,
+        table: SUPABASE_RESERVATIONS_TABLE,
+      });
       if (showErrors) {
         showNotice(
-          `Supabaseから予約データを取得できませんでした：${error.message}`,
+          `Supabaseから予約データを取得できませんでした：${getReadableErrorMessage(error)}`,
           "error"
         );
       }
@@ -736,7 +790,13 @@
       .delete()
       .eq("user_name", participant.name);
 
-    if (error) throw error;
+    if (error) {
+      logSupabaseError("予約削除に失敗", error, {
+        user_name: participant.name,
+        table: SUPABASE_RESERVATIONS_TABLE,
+      });
+      throw error;
+    }
   }
 
   async function insertSupabaseReservation(participant, room) {
@@ -752,7 +812,15 @@
         pin_code: participant.password,
       });
 
-    if (error) throw error;
+    if (error) {
+      logSupabaseError("予約登録に失敗", error, {
+        room_id: room.id,
+        room_name: room.name,
+        user_name: participant.name,
+        table: SUPABASE_RESERVATIONS_TABLE,
+      });
+      throw error;
+    }
   }
 
   async function updateSupabasePinCode(participant) {
@@ -763,7 +831,13 @@
       .update({ pin_code: participant.password })
       .eq("user_name", participant.name);
 
-    if (error) throw error;
+    if (error) {
+      logSupabaseError("参加者PINの予約データ更新に失敗", error, {
+        user_name: participant.name,
+        table: SUPABASE_RESERVATIONS_TABLE,
+      });
+      throw error;
+    }
   }
 
   function showNotice(message, type = "success") {
@@ -1707,7 +1781,7 @@
         await updateSupabasePinCode(participant);
       } catch (error) {
         showNotice(
-          `パスワードの保存に失敗しました：${error.message}`,
+          `パスワードの保存に失敗しました：${getReadableErrorMessage(error)}`,
           "error"
         );
         return;
@@ -1841,7 +1915,15 @@
       await refreshSupabaseReservations();
       showNotice(`${targetRoom.name}の予約が完了しました。`);
     } catch (error) {
-      showNotice(`予約の保存に失敗しました：${error.message}`, "error");
+      logSupabaseError("予約確定処理に失敗", error, {
+        room_id: targetRoom.id,
+        room_name: targetRoom.name,
+        user_name: participant.name,
+      });
+      showNotice(
+        `予約の保存に失敗しました：${getReadableErrorMessage(error)}`,
+        "error"
+      );
     } finally {
       elements.confirmBooking.disabled = false;
     }
@@ -2235,7 +2317,10 @@
       }
       showNotice(`${participant.name}さんのアカウントを削除しました。`);
     } catch (error) {
-      showNotice(`アカウント削除に失敗しました：${error.message}`, "error");
+      showNotice(
+        `アカウント削除に失敗しました：${getReadableErrorMessage(error)}`,
+        "error"
+      );
     }
   });
 
@@ -2276,7 +2361,10 @@
       showNotice(`${participant.name}さんのパスワードを変更しました。`);
     } catch (error) {
       participant.password = oldPassword;
-      showNotice(`パスワード変更に失敗しました：${error.message}`, "error");
+      showNotice(
+        `パスワード変更に失敗しました：${getReadableErrorMessage(error)}`,
+        "error"
+      );
     }
   });
 
