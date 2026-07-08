@@ -10,6 +10,20 @@
     itinerary: "groupTrip.itinerary.v1",
   };
 
+  const SUPABASE_URL = "https://ykvhwhrgahczfmlasalg.supabase.co";
+  const SUPABASE_ANON_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlreXdod3JnYWhjemZtbGFzYWxnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0OTY0OTgsImV4cCI6MjA5OTA3MjQ5OH0.rqt74LCMHYrjhiOebEjFd_3ueydT0BKphY7aojD2K3I";
+  const SUPABASE_RESERVATIONS_TABLE = "reservations";
+  const SUPABASE_COLUMNS =
+    "id, room_id, room_name, user_name, pin_code, created_at";
+  const SUPABASE_IS_CONFIGURED =
+    SUPABASE_URL !== "ここにProject URLを貼る" &&
+    SUPABASE_ANON_KEY !== "ここにanon public keyを貼る";
+  const supabaseClient =
+    SUPABASE_IS_CONFIGURED && window.supabase
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
+
   const MAX_PARTICIPANTS = 33;
   const INITIAL_ADMIN = {
     email: "admin@group-trip.jp",
@@ -128,6 +142,10 @@
     },
     pendingRoomId: null,
     editingItineraryId: null,
+    legacyRoomReservations: [],
+    legacyParticipantRoomIds: new Map(),
+    supabaseReservationsLoaded: false,
+    supabaseError: null,
     activeView: "booking",
     busSelections: {
       outbound: new Set(),
@@ -224,12 +242,83 @@
     }
   }
 
+  function getSupabaseSetupError() {
+    if (!SUPABASE_IS_CONFIGURED) {
+      return "Supabase接続情報を設定してください。app.js の SUPABASE_URL と SUPABASE_ANON_KEY を実際の値に置き換えると予約機能を使用できます。";
+    }
+
+    if (!window.supabase || !supabaseClient) {
+      return "Supabase JavaScript Clientを読み込めませんでした。index.html のSupabase scriptタグを確認してください。";
+    }
+
+    return "";
+  }
+
+  function resolveCurrentRoomId(roomId) {
+    if (!roomId) return null;
+    const currentRoomIds = new Set(INITIAL_ROOMS.map((room) => room.id));
+    if (currentRoomIds.has(roomId)) return roomId;
+    return REMOVED_ROOM_TARGETS.get(roomId) || LEGACY_ROOM_TARGETS.get(roomId) || null;
+  }
+
+  function extractLegacyRoomReservations(participants) {
+    const roomMap = new Map(INITIAL_ROOMS.map((room) => [room.id, room]));
+    const seenNames = new Set();
+
+    return participants
+      .map((participant) => {
+        const roomId = resolveCurrentRoomId(participant.roomId);
+        const room = roomMap.get(roomId);
+        const name = normalizeName(participant.name || "");
+        if (!name || !room || seenNames.has(comparableName(name))) return null;
+        seenNames.add(comparableName(name));
+        return {
+          room_id: room.id,
+          room_name: room.name,
+          user_name: name,
+          pin_code:
+            typeof participant.password === "string" &&
+            /^[0-9]{4}$/.test(participant.password)
+              ? participant.password
+              : "",
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function resetRoomReservations() {
+    state.rooms = clone(INITIAL_ROOMS);
+    state.participants.forEach((participant) => {
+      participant.roomId = null;
+    });
+  }
+
+  function getLocalParticipantSnapshot() {
+    return state.participants.map((participant) => ({
+      ...participant,
+      roomId: state.supabaseReservationsLoaded
+        ? null
+        : state.legacyParticipantRoomIds.get(participant.id) ||
+          participant.roomId ||
+          null,
+      supabaseReservationId: undefined,
+    }));
+  }
+
+  function findParticipantByName(name) {
+    const targetName = comparableName(name);
+    return (
+      state.participants.find(
+        (participant) => comparableName(participant.name) === targetName
+      ) || null
+    );
+  }
+
   function loadState() {
     const storedParticipants = safeParse(
       localStorage.getItem(STORAGE_KEYS.participants),
       []
     );
-    const storedRooms = safeParse(localStorage.getItem(STORAGE_KEYS.rooms), null);
     const storedAdmin = safeParse(localStorage.getItem(STORAGE_KEYS.admin), null);
     const storedSession = safeParse(localStorage.getItem(STORAGE_KEYS.session), null);
     const storedItinerary = safeParse(
@@ -239,10 +328,28 @@
 
     state.participants = Array.isArray(storedParticipants)
       ? storedParticipants
+          .filter(
+            (participant) =>
+              participant &&
+              typeof participant.name === "string" &&
+              normalizeName(participant.name)
+          )
+          .map((participant) => ({
+            ...participant,
+            id: participant.id || createId(),
+            name: normalizeName(participant.name),
+          }))
       : [];
-    state.rooms = Array.isArray(storedRooms)
-      ? mergeRoomDefinitions(storedRooms)
-      : clone(INITIAL_ROOMS);
+    state.legacyRoomReservations = extractLegacyRoomReservations(
+      state.participants
+    );
+    state.legacyParticipantRoomIds = new Map(
+      state.participants.map((participant) => [
+        participant.id,
+        participant.roomId || null,
+      ])
+    );
+    resetRoomReservations();
     state.itinerary = Array.isArray(storedItinerary)
       ? storedItinerary.filter(
           (entry) =>
@@ -263,7 +370,6 @@
     };
 
     repairRelationships();
-    saveAll();
   }
 
   function mergeRoomDefinitions(storedRooms) {
@@ -393,9 +499,11 @@
   function saveAll() {
     localStorage.setItem(
       STORAGE_KEYS.participants,
-      JSON.stringify(state.participants)
+      JSON.stringify(getLocalParticipantSnapshot())
     );
-    localStorage.setItem(STORAGE_KEYS.rooms, JSON.stringify(state.rooms));
+    if (state.supabaseReservationsLoaded) {
+      localStorage.removeItem(STORAGE_KEYS.rooms);
+    }
     localStorage.setItem(
       STORAGE_KEYS.itinerary,
       JSON.stringify(state.itinerary)
@@ -452,6 +560,210 @@
       return window.crypto.randomUUID();
     }
     return `participant-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  function normalizeSupabaseReservation(row) {
+    if (!row || !row.user_name || !row.room_id) return null;
+
+    const roomId = resolveCurrentRoomId(row.room_id);
+    const room = getRoom(roomId) || INITIAL_ROOMS.find((item) => item.id === roomId);
+    const userName = normalizeName(row.user_name);
+
+    if (!room || !userName) return null;
+
+    return {
+      id: row.id,
+      roomId: room.id,
+      roomName: row.room_name || room.name,
+      userName,
+      pinCode: /^[0-9]{4}$/.test(String(row.pin_code || ""))
+        ? String(row.pin_code)
+        : "",
+      createdAt: row.created_at || new Date().toISOString(),
+    };
+  }
+
+  function assignParticipantToRoom(participant, roomId) {
+    state.rooms.forEach((room) => {
+      room.participantIds = room.participantIds.filter(
+        (participantId) => participantId !== participant.id
+      );
+    });
+
+    const room = getRoom(roomId);
+    if (!room) {
+      participant.roomId = null;
+      participant.supabaseReservationId = null;
+      return;
+    }
+
+    participant.roomId = room.id;
+    if (!room.participantIds.includes(participant.id)) {
+      room.participantIds.push(participant.id);
+    }
+  }
+
+  function applySupabaseReservations(rows) {
+    resetRoomReservations();
+
+    const reservations = rows
+      .map(normalizeSupabaseReservation)
+      .filter(Boolean)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+    reservations.forEach((reservation) => {
+      let participant = findParticipantByName(reservation.userName);
+
+      if (!participant) {
+        participant = {
+          id: `supabase-${reservation.id || createId()}`,
+          name: reservation.userName,
+          password: reservation.pinCode,
+          roomId: null,
+          createdAt: reservation.createdAt,
+          updatedAt: reservation.createdAt,
+        };
+        state.participants.push(participant);
+      }
+
+      participant.name = reservation.userName;
+      if (reservation.pinCode) {
+        participant.password = reservation.pinCode;
+      }
+      participant.supabaseReservationId = reservation.id;
+      participant.updatedAt = reservation.createdAt;
+      assignParticipantToRoom(participant, reservation.roomId);
+    });
+
+    repairRelationships();
+  }
+
+  async function migrateLegacyReservationsIfNeeded(rows) {
+    if (
+      rows.length ||
+      !state.legacyRoomReservations.length ||
+      !supabaseClient
+    ) {
+      return rows;
+    }
+
+    const legacyReservations = state.legacyRoomReservations.filter(
+      (reservation) =>
+        reservation.room_id &&
+        reservation.room_name &&
+        reservation.user_name &&
+        /^[0-9]{4}$/.test(reservation.pin_code)
+    );
+
+    if (!legacyReservations.length) return rows;
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .insert(legacyReservations);
+
+    if (error) {
+      console.error("Supabase legacy migration failed:", error);
+      return rows;
+    }
+
+    const { data, error: reloadError } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .select(SUPABASE_COLUMNS)
+      .order("created_at", { ascending: true });
+
+    if (reloadError) {
+      console.error("Supabase reload after migration failed:", reloadError);
+      return rows;
+    }
+
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function loadSupabaseReservations({ showErrors = false } = {}) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) {
+      state.supabaseError = setupError;
+      state.supabaseReservationsLoaded = false;
+      resetRoomReservations();
+      repairRelationships();
+      if (showErrors) showNotice(setupError, "error");
+      return false;
+    }
+
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .select(SUPABASE_COLUMNS)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      state.supabaseError = error.message;
+      state.supabaseReservationsLoaded = false;
+      resetRoomReservations();
+      repairRelationships();
+      console.error("Supabase reservation select failed:", error);
+      if (showErrors) {
+        showNotice(
+          `Supabaseから予約データを取得できませんでした：${error.message}`,
+          "error"
+        );
+      }
+      return false;
+    }
+
+    const rows = await migrateLegacyReservationsIfNeeded(
+      Array.isArray(data) ? data : []
+    );
+    applySupabaseReservations(rows);
+    state.supabaseError = null;
+    state.supabaseReservationsLoaded = true;
+    saveAll();
+    return true;
+  }
+
+  async function refreshSupabaseReservations({ showErrors = true } = {}) {
+    const loaded = await loadSupabaseReservations({ showErrors });
+    syncBusSelectionsWithCurrentParticipant();
+    renderAll();
+    return loaded;
+  }
+
+  async function deleteSupabaseReservationsForParticipant(participant) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .delete()
+      .eq("user_name", participant.name);
+
+    if (error) throw error;
+  }
+
+  async function insertSupabaseReservation(participant, room) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .insert({
+        room_id: room.id,
+        room_name: room.name,
+        user_name: participant.name,
+        pin_code: participant.password,
+      });
+
+    if (error) throw error;
+  }
+
+  async function updateSupabasePinCode(participant) {
+    if (!participant.roomId || getSupabaseSetupError()) return;
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_RESERVATIONS_TABLE)
+      .update({ pin_code: participant.password })
+      .eq("user_name", participant.name);
+
+    if (error) throw error;
   }
 
   function showNotice(message, type = "success") {
@@ -1363,7 +1675,7 @@
     showNotice(message);
   }
 
-  function loginParticipant(rawName, rawPassword) {
+  async function loginParticipant(rawName, rawPassword) {
     const credentials = getParticipantCredentials(
       rawName,
       rawPassword,
@@ -1391,6 +1703,15 @@
     ) {
       participant.password = password;
       participant.updatedAt = new Date().toISOString();
+      try {
+        await updateSupabasePinCode(participant);
+      } catch (error) {
+        showNotice(
+          `パスワードの保存に失敗しました：${error.message}`,
+          "error"
+        );
+        return;
+      }
       completeParticipantLogin(
         participant,
         `${participant.name}さんの4桁パスワードを設定してログインしました。`
@@ -1483,11 +1804,23 @@
     elements.bookingDialog.showModal();
   }
 
-  function confirmBooking() {
+  async function confirmBooking() {
     const participant = getCurrentParticipant();
     const targetRoom = getRoom(state.pendingRoomId);
     if (!participant || !targetRoom) {
       elements.bookingDialog.close();
+      return;
+    }
+
+    if (getSupabaseSetupError()) {
+      elements.bookingDialog.close();
+      showNotice(getSupabaseSetupError(), "error");
+      return;
+    }
+
+    if (!/^[0-9]{4}$/.test(String(participant.password || ""))) {
+      elements.bookingDialog.close();
+      showNotice("参加者の4桁パスワードを設定してから予約してください。", "error");
       return;
     }
 
@@ -1498,19 +1831,20 @@
       return;
     }
 
-    state.rooms.forEach((room) => {
-      room.participantIds = room.participantIds.filter(
-        (participantId) => participantId !== participant.id
-      );
-    });
-    targetRoom.participantIds.push(participant.id);
-    participant.roomId = targetRoom.id;
-    participant.updatedAt = new Date().toISOString();
-    state.pendingRoomId = null;
-    saveAll();
-    elements.bookingDialog.close();
-    renderAll();
-    showNotice(`${targetRoom.name}の予約が完了しました。`);
+    elements.confirmBooking.disabled = true;
+    try {
+      await deleteSupabaseReservationsForParticipant(participant);
+      await insertSupabaseReservation(participant, targetRoom);
+      participant.updatedAt = new Date().toISOString();
+      state.pendingRoomId = null;
+      elements.bookingDialog.close();
+      await refreshSupabaseReservations();
+      showNotice(`${targetRoom.name}の予約が完了しました。`);
+    } catch (error) {
+      showNotice(`予約の保存に失敗しました：${error.message}`, "error");
+    } finally {
+      elements.confirmBooking.disabled = false;
+    }
   }
 
   function showAdminLogin() {
@@ -1850,7 +2184,7 @@
     }
   });
 
-  elements.adminParticipantAccountList.addEventListener("click", (event) => {
+  elements.adminParticipantAccountList.addEventListener("click", async (event) => {
     const deleteButton = event.target.closest("[data-delete-participant]");
     if (!deleteButton) return;
 
@@ -1875,25 +2209,37 @@
       return;
     }
 
-    state.rooms.forEach((room) => {
-      room.participantIds = room.participantIds.filter(
-        (participantId) => participantId !== participant.id
-      );
-    });
-    state.participants = state.participants.filter(
-      (item) => item.id !== participant.id
-    );
-    if (state.session.participantId === participant.id) {
-      state.session.participantId = null;
-      syncBusSelectionsWithCurrentParticipant();
-    }
+    try {
+      if (participant.roomId && !getSupabaseSetupError()) {
+        await deleteSupabaseReservationsForParticipant(participant);
+      }
 
-    saveAll();
-    renderAll();
-    showNotice(`${participant.name}さんのアカウントを削除しました。`);
+      state.rooms.forEach((room) => {
+        room.participantIds = room.participantIds.filter(
+          (participantId) => participantId !== participant.id
+        );
+      });
+      state.participants = state.participants.filter(
+        (item) => item.id !== participant.id
+      );
+      if (state.session.participantId === participant.id) {
+        state.session.participantId = null;
+        syncBusSelectionsWithCurrentParticipant();
+      }
+
+      saveAll();
+      if (!getSupabaseSetupError()) {
+        await refreshSupabaseReservations({ showErrors: false });
+      } else {
+        renderAll();
+      }
+      showNotice(`${participant.name}さんのアカウントを削除しました。`);
+    } catch (error) {
+      showNotice(`アカウント削除に失敗しました：${error.message}`, "error");
+    }
   });
 
-  elements.adminParticipantAccountList.addEventListener("submit", (event) => {
+  elements.adminParticipantAccountList.addEventListener("submit", async (event) => {
     const form = event.target.closest("[data-participant-password-form]");
     if (!form) return;
     event.preventDefault();
@@ -1919,11 +2265,19 @@
       return;
     }
 
+    const oldPassword = participant.password;
     participant.password = password;
     participant.updatedAt = new Date().toISOString();
-    saveAll();
-    renderAdmin();
-    showNotice(`${participant.name}さんのパスワードを変更しました。`);
+
+    try {
+      await updateSupabasePinCode(participant);
+      saveAll();
+      renderAdmin();
+      showNotice(`${participant.name}さんのパスワードを変更しました。`);
+    } catch (error) {
+      participant.password = oldPassword;
+      showNotice(`パスワード変更に失敗しました：${error.message}`, "error");
+    }
   });
 
   $("#admin-logout").addEventListener("click", () => {
@@ -1936,8 +2290,15 @@
     showNotice("管理者ログアウトしました。");
   });
 
-  loadState();
-  syncBusSelectionsWithCurrentParticipant();
-  renderAll();
-  switchView("booking");
+  async function initializeApp() {
+    loadState();
+    syncBusSelectionsWithCurrentParticipant();
+    renderAll();
+    switchView("booking");
+    await loadSupabaseReservations({ showErrors: true });
+    syncBusSelectionsWithCurrentParticipant();
+    renderAll();
+  }
+
+  initializeApp();
 })();
