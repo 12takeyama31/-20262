@@ -16,6 +16,12 @@
   const SUPABASE_RESERVATIONS_TABLE = "reservations";
   const SUPABASE_COLUMNS =
     "id, room_id, room_name, user_name, pin_code, created_at";
+  const SUPABASE_ITINERARY_TABLE = "itinerary_items";
+  const SUPABASE_ITINERARY_COLUMNS =
+    "id, item_date, item_time, title, location, memo, created_at";
+  const SUPABASE_BUS_TABLE = "bus_seat_reservations";
+  const SUPABASE_BUS_COLUMNS =
+    "id, participant_name, pin_code, direction, seat_id, created_at";
   const SUPABASE_IS_CONFIGURED =
     SUPABASE_URL !== "ここにProject URLを貼る" &&
     SUPABASE_ANON_KEY !== "ここにanon public keyを貼る";
@@ -144,7 +150,11 @@
     editingItineraryId: null,
     legacyRoomReservations: [],
     legacyParticipantRoomIds: new Map(),
+    legacyItineraryItems: [],
+    legacyBusReservations: [],
     supabaseReservationsLoaded: false,
+    supabaseItineraryLoaded: false,
+    supabaseBusReservationsLoaded: false,
     supabaseError: null,
     activeView: "itinerary",
     busSelections: {
@@ -331,10 +341,72 @@
       .filter(Boolean);
   }
 
+  function extractLegacyItineraryItems(items) {
+    if (!Array.isArray(items)) return [];
+
+    return items
+      .filter(
+        (entry) =>
+          entry &&
+          typeof entry.date === "string" &&
+          typeof entry.time === "string" &&
+          typeof entry.title === "string" &&
+          entry.date &&
+          entry.time &&
+          entry.title.trim()
+      )
+      .map((entry) => ({
+        item_date: entry.date,
+        item_time: entry.time,
+        title: entry.title.trim(),
+        location: entry.location || "",
+        memo: entry.note || "",
+      }));
+  }
+
+  function extractLegacyBusReservations(participants) {
+    const rows = [];
+    const seen = new Set();
+
+    participants.forEach((participant) => {
+      const name = normalizeName(participant.name || "");
+      const pinCode =
+        typeof participant.password === "string" &&
+        /^[0-9]{4}$/.test(participant.password)
+          ? participant.password
+          : "";
+      if (!name || !pinCode) return;
+
+      [
+        ["outbound", participant.busReservation?.outboundSeat],
+        ["return", participant.busReservation?.returnSeat],
+      ].forEach(([direction, seatId]) => {
+        if (!BUS_SEAT_IDS.has(seatId)) return;
+        const key = `${direction}:${seatId}:${comparableName(name)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          participant_name: name,
+          pin_code: pinCode,
+          direction,
+          seat_id: seatId,
+        });
+      });
+    });
+
+    return rows;
+  }
+
   function resetRoomReservations() {
     state.rooms = clone(INITIAL_ROOMS);
     state.participants.forEach((participant) => {
       participant.roomId = null;
+    });
+  }
+
+  function resetBusReservations() {
+    state.participants.forEach((participant) => {
+      participant.busReservation = null;
     });
   }
 
@@ -346,6 +418,7 @@
         : state.legacyParticipantRoomIds.get(participant.id) ||
           participant.roomId ||
           null,
+      busReservation: undefined,
       supabaseReservationId: undefined,
     }));
   }
@@ -394,17 +467,13 @@
         participant.roomId || null,
       ])
     );
+    state.legacyBusReservations = extractLegacyBusReservations(
+      state.participants
+    );
     resetRoomReservations();
-    state.itinerary = Array.isArray(storedItinerary)
-      ? storedItinerary.filter(
-          (entry) =>
-            entry &&
-            typeof entry.id === "string" &&
-            typeof entry.date === "string" &&
-            typeof entry.time === "string" &&
-            typeof entry.title === "string"
-        )
-      : [];
+    resetBusReservations();
+    state.legacyItineraryItems = extractLegacyItineraryItems(storedItinerary);
+    state.itinerary = [];
     state.admin =
       storedAdmin && storedAdmin.email && storedAdmin.password
         ? storedAdmin
@@ -549,10 +618,9 @@
     if (state.supabaseReservationsLoaded) {
       localStorage.removeItem(STORAGE_KEYS.rooms);
     }
-    localStorage.setItem(
-      STORAGE_KEYS.itinerary,
-      JSON.stringify(state.itinerary)
-    );
+    if (state.supabaseItineraryLoaded) {
+      localStorage.removeItem(STORAGE_KEYS.itinerary);
+    }
     localStorage.setItem(STORAGE_KEYS.admin, JSON.stringify(state.admin));
     saveSession();
   }
@@ -836,6 +904,450 @@
       logSupabaseError("参加者PINの予約データ更新に失敗", error, {
         user_name: participant.name,
         table: SUPABASE_RESERVATIONS_TABLE,
+      });
+      throw error;
+    }
+  }
+
+  function normalizeItineraryItem(row) {
+    if (!row || !row.item_date || !row.item_time || !row.title) return null;
+
+    return {
+      id: String(row.id),
+      date: row.item_date,
+      time: row.item_time,
+      title: String(row.title),
+      location: row.location || "",
+      note: row.memo || "",
+      createdAt: row.created_at || new Date().toISOString(),
+    };
+  }
+
+  function applySupabaseItinerary(rows) {
+    state.itinerary = rows.map(normalizeItineraryItem).filter(Boolean);
+  }
+
+  async function migrateLegacyItineraryIfNeeded(rows) {
+    if (rows.length || !state.legacyItineraryItems.length || !supabaseClient) {
+      return rows;
+    }
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .insert(state.legacyItineraryItems);
+
+    if (error) {
+      logSupabaseError("既存localStorage予定表のSupabase移行に失敗", error, {
+        count: state.legacyItineraryItems.length,
+        table: SUPABASE_ITINERARY_TABLE,
+      });
+      return rows;
+    }
+
+    const { data, error: reloadError } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .select(SUPABASE_ITINERARY_COLUMNS)
+      .order("item_date", { ascending: true })
+      .order("item_time", { ascending: true });
+
+    if (reloadError) {
+      logSupabaseError("予定表移行後の再取得に失敗", reloadError, {
+        table: SUPABASE_ITINERARY_TABLE,
+      });
+      return rows;
+    }
+
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function loadSupabaseItinerary({ showErrors = false } = {}) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) {
+      state.supabaseItineraryLoaded = false;
+      state.itinerary = [];
+      console.error("[Supabase] 予定表の初期設定エラー", {
+        message: setupError,
+        table: SUPABASE_ITINERARY_TABLE,
+      });
+      if (showErrors) showNotice(setupError, "error");
+      return false;
+    }
+
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .select(SUPABASE_ITINERARY_COLUMNS)
+      .order("item_date", { ascending: true })
+      .order("item_time", { ascending: true });
+
+    if (error) {
+      state.supabaseItineraryLoaded = false;
+      state.itinerary = [];
+      logSupabaseError("予定表データの取得に失敗", error, {
+        table: SUPABASE_ITINERARY_TABLE,
+      });
+      if (showErrors) {
+        showNotice(
+          `予定表の取得に失敗しました：${getReadableErrorMessage(error)}`,
+          "error"
+        );
+      }
+      return false;
+    }
+
+    const rows = await migrateLegacyItineraryIfNeeded(
+      Array.isArray(data) ? data : []
+    );
+    applySupabaseItinerary(rows);
+    state.supabaseItineraryLoaded = true;
+    saveAll();
+    return true;
+  }
+
+  async function refreshSupabaseItinerary({ showErrors = true } = {}) {
+    const loaded = await loadSupabaseItinerary({ showErrors });
+    renderItinerary();
+    if (state.activeView === "admin") renderAdminItinerary();
+    return loaded;
+  }
+
+  async function insertSupabaseItineraryItem(entry) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .insert({
+        item_date: entry.date,
+        item_time: entry.time,
+        title: entry.title,
+        location: entry.location || "",
+        memo: entry.note || "",
+      });
+
+    if (error) {
+      logSupabaseError("予定表登録に失敗", error, {
+        table: SUPABASE_ITINERARY_TABLE,
+        entry,
+      });
+      throw error;
+    }
+  }
+
+  async function updateSupabaseItineraryItem(entryId, entry) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .update({
+        item_date: entry.date,
+        item_time: entry.time,
+        title: entry.title,
+        location: entry.location || "",
+        memo: entry.note || "",
+      })
+      .eq("id", entryId);
+
+    if (error) {
+      logSupabaseError("予定表更新に失敗", error, {
+        table: SUPABASE_ITINERARY_TABLE,
+        id: entryId,
+        entry,
+      });
+      throw error;
+    }
+  }
+
+  async function deleteSupabaseItineraryItem(entryId) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_ITINERARY_TABLE)
+      .delete()
+      .eq("id", entryId);
+
+    if (error) {
+      logSupabaseError("予定表削除に失敗", error, {
+        table: SUPABASE_ITINERARY_TABLE,
+        id: entryId,
+      });
+      throw error;
+    }
+  }
+
+  function normalizeBusReservation(row) {
+    if (
+      !row ||
+      !row.participant_name ||
+      !["outbound", "return"].includes(row.direction) ||
+      !BUS_SEAT_IDS.has(row.seat_id)
+    ) {
+      return null;
+    }
+
+    return {
+      id: String(row.id),
+      participantName: normalizeName(row.participant_name),
+      pinCode: /^[0-9]{4}$/.test(String(row.pin_code || ""))
+        ? String(row.pin_code)
+        : "",
+      direction: row.direction,
+      seatId: row.seat_id,
+      createdAt: row.created_at || new Date().toISOString(),
+    };
+  }
+
+  function applySupabaseBusReservations(rows) {
+    resetBusReservations();
+
+    const occupiedSeats = new Set();
+    const participantDirections = new Set();
+    const reservations = rows
+      .map(normalizeBusReservation)
+      .filter(Boolean)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+
+    reservations.forEach((reservation) => {
+      const seatKey = `${reservation.direction}:${reservation.seatId}`;
+      const participantKey = `${comparableName(reservation.participantName)}:${
+        reservation.direction
+      }`;
+      if (occupiedSeats.has(seatKey) || participantDirections.has(participantKey)) {
+        return;
+      }
+
+      let participant = findParticipantByName(reservation.participantName);
+      if (!participant) {
+        participant = {
+          id: `bus-${reservation.id || createId()}`,
+          name: reservation.participantName,
+          password: reservation.pinCode,
+          roomId: null,
+          busReservation: null,
+          createdAt: reservation.createdAt,
+          updatedAt: reservation.createdAt,
+        };
+        state.participants.push(participant);
+      }
+
+      participant.name = reservation.participantName;
+      if (reservation.pinCode) {
+        participant.password = reservation.pinCode;
+      }
+      if (!participant.busReservation) participant.busReservation = {};
+      const key =
+        reservation.direction === "outbound" ? "outboundSeat" : "returnSeat";
+      participant.busReservation[key] = reservation.seatId;
+      participant.busReservation.updatedAt = reservation.createdAt;
+      participant.updatedAt = reservation.createdAt;
+      occupiedSeats.add(seatKey);
+      participantDirections.add(participantKey);
+    });
+  }
+
+  async function migrateLegacyBusReservationsIfNeeded(rows) {
+    if (rows.length || !state.legacyBusReservations.length || !supabaseClient) {
+      return rows;
+    }
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .insert(state.legacyBusReservations);
+
+    if (error) {
+      logSupabaseError("既存localStorageバス予約のSupabase移行に失敗", error, {
+        count: state.legacyBusReservations.length,
+        table: SUPABASE_BUS_TABLE,
+      });
+      return rows;
+    }
+
+    const { data, error: reloadError } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .select(SUPABASE_BUS_COLUMNS)
+      .order("created_at", { ascending: true });
+
+    if (reloadError) {
+      logSupabaseError("バス予約移行後の再取得に失敗", reloadError, {
+        table: SUPABASE_BUS_TABLE,
+      });
+      return rows;
+    }
+
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function loadSupabaseBusReservations({ showErrors = false } = {}) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) {
+      state.supabaseBusReservationsLoaded = false;
+      resetBusReservations();
+      console.error("[Supabase] バス座席予約の初期設定エラー", {
+        message: setupError,
+        table: SUPABASE_BUS_TABLE,
+      });
+      if (showErrors) showNotice(setupError, "error");
+      return false;
+    }
+
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .select(SUPABASE_BUS_COLUMNS)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      state.supabaseBusReservationsLoaded = false;
+      resetBusReservations();
+      logSupabaseError("バス座席予約データの取得に失敗", error, {
+        table: SUPABASE_BUS_TABLE,
+      });
+      if (showErrors) {
+        showNotice(
+          `バス座席予約の取得に失敗しました：${getReadableErrorMessage(error)}`,
+          "error"
+        );
+      }
+      return false;
+    }
+
+    const rows = await migrateLegacyBusReservationsIfNeeded(
+      Array.isArray(data) ? data : []
+    );
+    applySupabaseBusReservations(rows);
+    state.supabaseBusReservationsLoaded = true;
+    saveAll();
+    return true;
+  }
+
+  async function refreshSupabaseBusReservations({ showErrors = true } = {}) {
+    const loaded = await loadSupabaseBusReservations({ showErrors });
+    syncBusSelectionsWithCurrentParticipant();
+    renderBusView();
+    if (state.activeView === "admin") renderAdmin();
+    return loaded;
+  }
+
+  async function ensureBusSeatAvailable(direction, seatId, participant) {
+    const { data, error } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .select("id, participant_name")
+      .eq("direction", direction)
+      .eq("seat_id", seatId);
+
+    if (error) {
+      logSupabaseError("バス座席の重複確認に失敗", error, {
+        table: SUPABASE_BUS_TABLE,
+        direction,
+        seat_id: seatId,
+      });
+      throw error;
+    }
+
+    const conflict = (Array.isArray(data) ? data : []).find(
+      (row) =>
+        comparableName(row.participant_name || "") !==
+        comparableName(participant.name)
+    );
+
+    if (conflict) {
+      const label = direction === "outbound" ? "行き" : "帰り";
+      throw new Error(`${label}の${seatId}はすでに予約されています`);
+    }
+  }
+
+  async function saveSupabaseBusSeatReservation(participant, direction, seatId) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    await ensureBusSeatAvailable(direction, seatId, participant);
+
+    const { data, error: selectError } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .select("id")
+      .eq("participant_name", participant.name)
+      .eq("direction", direction);
+
+    if (selectError) {
+      logSupabaseError("参加者の既存バス予約確認に失敗", selectError, {
+        table: SUPABASE_BUS_TABLE,
+        participant_name: participant.name,
+        direction,
+      });
+      throw selectError;
+    }
+
+    const existingRows = Array.isArray(data) ? data : [];
+    if (existingRows.length) {
+      const { error } = await supabaseClient
+        .from(SUPABASE_BUS_TABLE)
+        .update({
+          pin_code: participant.password,
+          seat_id: seatId,
+        })
+        .eq("participant_name", participant.name)
+        .eq("direction", direction);
+
+      if (error) {
+        logSupabaseError("バス座席予約更新に失敗", error, {
+          table: SUPABASE_BUS_TABLE,
+          participant_name: participant.name,
+          direction,
+          seat_id: seatId,
+        });
+        throw error;
+      }
+      return;
+    }
+
+    const { error } = await supabaseClient.from(SUPABASE_BUS_TABLE).insert({
+      participant_name: participant.name,
+      pin_code: participant.password,
+      direction,
+      seat_id: seatId,
+    });
+
+    if (error) {
+      logSupabaseError("バス座席予約登録に失敗", error, {
+        table: SUPABASE_BUS_TABLE,
+        participant_name: participant.name,
+        direction,
+        seat_id: seatId,
+      });
+      throw error;
+    }
+  }
+
+  async function deleteSupabaseBusReservationsForParticipant(participant) {
+    const setupError = getSupabaseSetupError();
+    if (setupError) throw new Error(setupError);
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .delete()
+      .eq("participant_name", participant.name);
+
+    if (error) {
+      logSupabaseError("参加者のバス座席予約削除に失敗", error, {
+        table: SUPABASE_BUS_TABLE,
+        participant_name: participant.name,
+      });
+      throw error;
+    }
+  }
+
+  async function updateSupabaseBusPinCode(participant) {
+    if (getSupabaseSetupError()) return;
+
+    const { error } = await supabaseClient
+      .from(SUPABASE_BUS_TABLE)
+      .update({ pin_code: participant.password })
+      .eq("participant_name", participant.name);
+
+    if (error) {
+      logSupabaseError("バス座席予約の参加者PIN更新に失敗", error, {
+        table: SUPABASE_BUS_TABLE,
+        participant_name: participant.name,
       });
       throw error;
     }
@@ -1655,7 +2167,7 @@
     elements.busFormErrors.hidden = false;
   }
 
-  function confirmBusReservation() {
+  async function confirmBusReservation() {
     const participant = getCurrentParticipant();
     const outboundSeat = [...state.busSelections.outbound][0] || null;
     const returnSeat = [...state.busSelections.return][0] || null;
@@ -1666,6 +2178,9 @@
     }
     if (!outboundSeat || !returnSeat) {
       errors.push("行きと帰りの座席を1席ずつ選択してください");
+    }
+    if (participant && !/^[0-9]{4}$/.test(String(participant.password || ""))) {
+      errors.push("参加者の4桁パスワードを設定してから予約してください");
     }
     if (outboundSeat && getReservedBusSeats("outbound").has(outboundSeat)) {
       errors.push(`行きの${outboundSeat}はすでに予約されています`);
@@ -1680,12 +2195,36 @@
       return;
     }
 
-    participant.busReservation = {
-      outboundSeat,
-      returnSeat,
-      updatedAt: new Date().toISOString(),
-    };
-    saveAll();
+    elements.confirmBusReservation.disabled = true;
+    try {
+      const setupError = getSupabaseSetupError();
+      if (setupError) throw new Error(setupError);
+      await ensureBusSeatAvailable("outbound", outboundSeat, participant);
+      await ensureBusSeatAvailable("return", returnSeat, participant);
+      await saveSupabaseBusSeatReservation(participant, "outbound", outboundSeat);
+      await saveSupabaseBusSeatReservation(participant, "return", returnSeat);
+      await refreshSupabaseBusReservations({ showErrors: false });
+    } catch (error) {
+      logSupabaseError("バス座席予約確定処理に失敗", error, {
+        participant_name: participant?.name,
+        outboundSeat,
+        returnSeat,
+      });
+      showBusFormErrors(["保存に失敗しました。もう一度お試しください。"]);
+      showNotice(
+        `保存に失敗しました：${getReadableErrorMessage(error)}`,
+        "error"
+      );
+      invalidateBusConfirmation();
+      await refreshSupabaseBusReservations({ showErrors: false }).catch(
+        (refreshError) => {
+          logSupabaseError("バス座席予約失敗後の再取得に失敗", refreshError);
+        }
+      );
+      elements.confirmBusReservation.disabled = false;
+      return;
+    }
+    elements.confirmBusReservation.disabled = false;
 
     const confirmationItems = [
       ["参加者", participant.name, ""],
@@ -1782,6 +2321,7 @@
       participant.updatedAt = new Date().toISOString();
       try {
         await updateSupabasePinCode(participant);
+        await updateSupabaseBusPinCode(participant);
       } catch (error) {
         showNotice(
           `パスワードの保存に失敗しました：${getReadableErrorMessage(error)}`,
@@ -2165,7 +2705,7 @@
     submitResetRequest($("#reset-email").value);
   });
 
-  elements.itineraryForm.addEventListener("submit", (event) => {
+  elements.itineraryForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!state.session.adminAuthenticated) {
       showNotice("管理者としてログインしてください。", "error");
@@ -2183,47 +2723,50 @@
       return;
     }
 
-    const now = new Date().toISOString();
+    const entryPayload = {
+      date,
+      time,
+      title,
+      location,
+      note,
+    };
     const existingEntry = state.itinerary.find(
       (entry) => entry.id === state.editingItineraryId
     );
-    if (existingEntry) {
-      Object.assign(existingEntry, {
-        date,
-        time,
-        title,
-        location,
-        note,
-        updatedAt: now,
-      });
-    } else {
-      state.itinerary.push({
-        id: `itinerary-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        date,
-        time,
-        title,
-        location,
-        note,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
     const message = existingEntry
       ? "工程を更新しました。"
       : "工程を予定表へ追加しました。";
-    saveAll();
-    resetItineraryEditor();
-    renderItinerary();
-    renderAdminItinerary();
-    showNotice(message);
+    elements.saveItinerary.disabled = true;
+
+    try {
+      if (existingEntry) {
+        await updateSupabaseItineraryItem(existingEntry.id, entryPayload);
+      } else {
+        await insertSupabaseItineraryItem(entryPayload);
+      }
+
+      await refreshSupabaseItinerary({ showErrors: false });
+      resetItineraryEditor();
+      showNotice(message);
+    } catch (error) {
+      logSupabaseError("予定表保存処理に失敗", error, {
+        entry: entryPayload,
+        editingId: state.editingItineraryId,
+      });
+      showNotice(
+        `保存に失敗しました：${getReadableErrorMessage(error)}`,
+        "error"
+      );
+    } finally {
+      elements.saveItinerary.disabled = false;
+    }
   });
 
   elements.cancelItineraryEdit.addEventListener("click", () => {
     resetItineraryEditor();
   });
 
-  elements.adminItineraryList.addEventListener("click", (event) => {
+  elements.adminItineraryList.addEventListener("click", async (event) => {
     const editButton = event.target.closest("[data-itinerary-edit]");
     const deleteButton = event.target.closest("[data-itinerary-delete]");
 
@@ -2258,14 +2801,21 @@
         return;
       }
 
-      state.itinerary = state.itinerary.filter(
-        (item) => item.id !== entry.id
-      );
-      if (state.editingItineraryId === entry.id) resetItineraryEditor();
-      saveAll();
-      renderItinerary();
-      renderAdminItinerary();
-      showNotice("工程を削除しました。");
+      try {
+        await deleteSupabaseItineraryItem(entry.id);
+        if (state.editingItineraryId === entry.id) resetItineraryEditor();
+        await refreshSupabaseItinerary({ showErrors: false });
+        showNotice("工程を削除しました。");
+      } catch (error) {
+        logSupabaseError("予定表削除処理に失敗", error, {
+          id: entry.id,
+          title: entry.title,
+        });
+        showNotice(
+          `保存に失敗しました：${getReadableErrorMessage(error)}`,
+          "error"
+        );
+      }
     }
   });
 
@@ -2298,6 +2848,9 @@
       if (participant.roomId && !getSupabaseSetupError()) {
         await deleteSupabaseReservationsForParticipant(participant);
       }
+      if (!getSupabaseSetupError()) {
+        await deleteSupabaseBusReservationsForParticipant(participant);
+      }
 
       state.rooms.forEach((room) => {
         room.participantIds = room.participantIds.filter(
@@ -2315,6 +2868,7 @@
       saveAll();
       if (!getSupabaseSetupError()) {
         await refreshSupabaseReservations({ showErrors: false });
+        await refreshSupabaseBusReservations({ showErrors: false });
       } else {
         renderAll();
       }
@@ -2359,6 +2913,7 @@
 
     try {
       await updateSupabasePinCode(participant);
+      await updateSupabaseBusPinCode(participant);
       saveAll();
       renderAdmin();
       showNotice(`${participant.name}さんのパスワードを変更しました。`);
@@ -2387,6 +2942,8 @@
     renderAll();
     switchView("itinerary");
     await loadSupabaseReservations({ showErrors: true });
+    await loadSupabaseItinerary({ showErrors: true });
+    await loadSupabaseBusReservations({ showErrors: true });
     syncBusSelectionsWithCurrentParticipant();
     renderAll();
   }
