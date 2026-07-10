@@ -146,7 +146,7 @@
     legacyParticipantRoomIds: new Map(),
     supabaseReservationsLoaded: false,
     supabaseError: null,
-    activeView: "booking",
+    activeView: "itinerary",
     busSelections: {
       outbound: new Set(),
       return: new Set(),
@@ -224,6 +224,7 @@
     headerMenuPanel: $("#header-menu-panel"),
     menuParticipantLogin: $("#menu-participant-login"),
     menuBooking: $("#menu-booking"),
+    menuBus: $("#menu-bus"),
     menuStatus: $("#menu-status"),
     menuItinerary: $("#menu-itinerary"),
     menuAdmin: $("#menu-admin"),
@@ -860,11 +861,12 @@
 
     if (open) {
       const firstVisibleItem = [
-        elements.menuParticipantLogin,
-        elements.menuBooking,
-        elements.menuStatus,
         elements.menuItinerary,
+        elements.menuBooking,
+        elements.menuBus,
+        elements.menuStatus,
         elements.menuAdmin,
+        elements.menuParticipantLogin,
         elements.menuLogout,
       ].find((item) => !item.hidden);
       firstVisibleItem?.focus();
@@ -888,9 +890,10 @@
     elements.menuLogout.hidden = !isLoggedIn;
 
     [
-      [elements.menuBooking, "booking"],
-      [elements.menuStatus, "status"],
       [elements.menuItinerary, "itinerary"],
+      [elements.menuBooking, "booking"],
+      [elements.menuBus, "bus"],
+      [elements.menuStatus, "status"],
       [elements.menuAdmin, "admin"],
     ].forEach(([item, viewName]) => {
       item.setAttribute(
@@ -1240,7 +1243,7 @@
         <div class="itinerary-empty card">
           <p class="section-kicker">COMING SOON</p>
           <h3>工程表はまだ設定されていません</h3>
-          <p>管理者が予定を登録すると、こちらに旅行のしおりが表示されます。</p>
+          <p>管理者が予定を登録すると、こちらに旅行の予定表が表示されます。</p>
         </div>
       `;
       return;
@@ -2208,7 +2211,7 @@
 
     const message = existingEntry
       ? "工程を更新しました。"
-      : "工程をしおりへ追加しました。";
+      : "工程を予定表へ追加しました。";
     saveAll();
     resetItineraryEditor();
     renderItinerary();
@@ -2382,7 +2385,7 @@
     loadState();
     syncBusSelectionsWithCurrentParticipant();
     renderAll();
-    switchView("booking");
+    switchView("itinerary");
     await loadSupabaseReservations({ showErrors: true });
     syncBusSelectionsWithCurrentParticipant();
     renderAll();

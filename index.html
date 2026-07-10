@@ -46,12 +46,12 @@
               <strong>メニュー</strong>
             </div>
             <button
-              id="menu-participant-login"
+              id="menu-itinerary"
               class="header-menu-item"
               type="button"
-              data-menu-action="participant-login"
+              data-menu-action="itinerary"
             >
-              参加者ログイン
+              予定表
             </button>
             <button
               id="menu-booking"
@@ -59,7 +59,15 @@
               type="button"
               data-menu-action="booking"
             >
-              部屋予約
+              部屋
+            </button>
+            <button
+              id="menu-bus"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="bus"
+            >
+              バス
             </button>
             <button
               id="menu-status"
@@ -67,15 +75,7 @@
               type="button"
               data-menu-action="status"
             >
-              予約状況
-            </button>
-            <button
-              id="menu-itinerary"
-              class="header-menu-item"
-              type="button"
-              data-menu-action="itinerary"
-            >
-              しおり
+              予約確認
             </button>
             <button
               id="menu-admin"
@@ -84,6 +84,14 @@
               data-menu-action="admin"
             >
               管理者ログイン
+            </button>
+            <button
+              id="menu-participant-login"
+              class="header-menu-item"
+              type="button"
+              data-menu-action="participant-login"
+            >
+              参加者ログイン
             </button>
             <button
               id="menu-logout"
@@ -246,10 +254,10 @@
       </section>
 
       <nav class="tab-nav" aria-label="メインナビゲーション">
-        <button class="tab-button" type="button" data-view="itinerary">
-          しおり
+        <button class="tab-button is-active" type="button" data-view="itinerary">
+          予定表
         </button>
-        <button class="tab-button is-active" type="button" data-view="booking">
+        <button class="tab-button" type="button" data-view="booking">
           部屋
         </button>
         <button class="tab-button" type="button" data-view="bus">
@@ -265,7 +273,7 @@
 
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
 
-      <section id="view-booking" class="view is-active" aria-labelledby="booking-title">
+      <section id="view-booking" class="view" aria-labelledby="booking-title" hidden>
         <div class="section-heading">
           <div>
             <p class="section-kicker">ROOM SELECTION</p>
@@ -293,14 +301,13 @@
 
       <section
         id="view-itinerary"
-        class="view"
+        class="view is-active"
         aria-labelledby="itinerary-title"
-        hidden
       >
         <div class="section-heading">
           <div>
             <p class="section-kicker">JOURNEY GUIDE</p>
-            <h2 id="itinerary-title">しおり</h2>
+            <h2 id="itinerary-title">予定表</h2>
           </div>
           <p class="section-description">
             旅行当日の集合時間や移動予定を確認できます。
@@ -554,7 +561,7 @@
                 <p class="section-kicker">ITINERARY</p>
                 <h3 id="admin-itinerary-title">工程表管理</h3>
                 <p class="admin-section-description">
-                  しおりに表示する予定を追加・編集・削除できます。
+                  予定表に表示する予定を追加・編集・削除できます。
                 </p>
               </div>
               <span class="admin-only-badge">管理者のみ</span>
@@ -680,6 +687,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./app.js?v=20260708-supabase-fix"></script>
+    <script src="./app.js?v=20260708-itinerary-menu"></script>
   </body>
 </html>
