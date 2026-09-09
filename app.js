@@ -61,7 +61,7 @@
     {
       id: "superior-a",
       name: "スーペリア A",
-      capacity: 5,
+      capacity: 6,
       images: ROOM_IMAGE_SETS.superior,
       participantIds: [],
     },
@@ -96,7 +96,7 @@
     {
       id: "family-a",
       name: "ファミリー A",
-      capacity: 6,
+      capacity: 5,
       images: ROOM_IMAGE_SETS.family,
       participantIds: [],
     },
