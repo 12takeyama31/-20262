@@ -2,10 +2,11 @@
   "use strict";
 
   const STORAGE_KEYS = {
-    participants: "groupTrip.participants.v1",
+    // Previous browser accounts use real names; keep them separate from demo aliases.
+    participants: "groupTrip.participants.demo.v1",
     rooms: "groupTrip.rooms.v1",
     admin: "groupTrip.admin.v1",
-    session: "groupTrip.session.v1",
+    session: "groupTrip.session.demo.v1",
     resetRequests: "groupTrip.resetRequests.v1",
     itinerary: "groupTrip.itinerary.v1",
   };

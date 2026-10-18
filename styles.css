@@ -62,9 +62,6 @@ input:focus-visible {
   overflow: hidden;
   color: #fffaf3;
   background-color: #4f382e;
-  background-image: url("./assets/header/main-visual.jpg");
-  background-position: center 9%;
-  background-size: cover;
   border-bottom: 1px solid rgba(255, 250, 243, 0.22);
 }
 
@@ -99,9 +96,9 @@ input:focus-visible {
   align-items: center;
   gap: 28px;
   width: min(calc(100% - 48px), var(--max-width));
-  min-height: 320px;
+  min-height: 220px;
   margin: 0 auto;
-  padding: 68px 0;
+  padding: 44px 0;
 }
 
 .header-title-group {
@@ -2039,8 +2036,8 @@ textarea:focus {
   }
 
   .header-inner {
-    min-height: 240px;
-    padding: 46px 0;
+    min-height: 200px;
+    padding: 38px 0;
   }
 
   .header-menu {
