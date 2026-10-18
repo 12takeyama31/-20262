@@ -142,6 +142,7 @@
     participants: [],
     rooms: [],
     itinerary: [],
+    itineraryLoading: true,
     admin: null,
     session: {
       participantId: null,
@@ -1005,10 +1006,22 @@
   }
 
   async function refreshSupabaseItinerary({ showErrors = true } = {}) {
-    const loaded = await loadSupabaseItinerary({ showErrors });
+    state.itineraryLoading = true;
     renderItinerary();
-    if (state.activeView === "admin") renderAdminItinerary();
-    return loaded;
+    try {
+      return await loadSupabaseItinerary({ showErrors });
+    } catch (error) {
+      state.supabaseItineraryLoaded = false;
+      logSupabaseError("予定表の読み込みに失敗", error);
+      if (showErrors) {
+        showNotice(`予定表の取得に失敗しました：${getReadableErrorMessage(error)}`, "error");
+      }
+      return false;
+    } finally {
+      state.itineraryLoading = false;
+      renderItinerary();
+      if (state.activeView === "admin") renderAdminItinerary();
+    }
   }
 
   async function insertSupabaseItineraryItem(entry) {
@@ -1750,6 +1763,27 @@
   }
 
   function renderItinerary() {
+    elements.itineraryList.setAttribute("aria-busy", String(state.itineraryLoading));
+    if (state.itineraryLoading) {
+      elements.itineraryList.innerHTML = `
+        <div class="itinerary-loading card" role="status">
+          <span class="itinerary-spinner" aria-hidden="true"></span>
+          <p>予定表を読み込み中…</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (!state.supabaseItineraryLoaded) {
+      elements.itineraryList.innerHTML = `
+        <div class="itinerary-empty card" role="alert">
+          <h3>予定表を読み込めませんでした</h3>
+          <p>通信状態をご確認のうえ、ページを再読み込みしてください。</p>
+        </div>
+      `;
+      return;
+    }
+
     const entries = getSortedItinerary();
     if (!entries.length) {
       elements.itineraryList.innerHTML = `
@@ -2943,7 +2977,7 @@
     renderAll();
     switchView("itinerary");
     await loadSupabaseReservations({ showErrors: true });
-    await loadSupabaseItinerary({ showErrors: true });
+    await refreshSupabaseItinerary({ showErrors: true });
     await loadSupabaseBusReservations({ showErrors: true });
     syncBusSelectionsWithCurrentParticipant();
     renderAll();

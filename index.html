@@ -8,7 +8,7 @@
       content="部旅行の部屋割り・バス座席予約管理サイト"
     />
     <title>部旅行</title>
-    <link rel="stylesheet" href="./styles.css?v=20261018-demo" />
+    <link rel="stylesheet" href="./styles.css?v=20261018-itinerary-loading" />
   </head>
   <body>
     <header class="site-header">
@@ -313,7 +313,12 @@
             サンプルの旅行予定を表示しています。
           </p>
         </div>
-        <div id="itinerary-list" class="itinerary-list"></div>
+        <div id="itinerary-list" class="itinerary-list" aria-busy="true">
+          <div class="itinerary-loading card" role="status">
+            <span class="itinerary-spinner" aria-hidden="true"></span>
+            <p>予定表を読み込み中…</p>
+          </div>
+        </div>
       </section>
 
       <section id="view-bus" class="view" aria-labelledby="bus-title" hidden>
@@ -687,6 +692,6 @@
     </dialog>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="./app.js?v=20261018-demo-data"></script>
+    <script src="./app.js?v=20261018-itinerary-loading"></script>
   </body>
 </html>
